@@ -31,6 +31,7 @@ DISALLOWED_IPS = map(
     )),
 )
 
+DEFAULT_EVENT_FILTER = 'only_new'
 
 def is_valid_url(url):
     parsed = urlparse(url)
@@ -54,6 +55,13 @@ class WebHooksOptionsForm(forms.Form):
         widget=forms.Textarea(attrs={
             'class': 'span6', 'placeholder': 'https://getsentry.com/callback/url'}),
         help_text=_('Enter callback URLs to POST new events to (one per line).'))
+
+    event_filter = forms.ChoiceField(
+        label=_('Event Filter'),
+        choices=(
+            ('only_new', _('Only new  (or reoponed)')),
+            ('all', _('All'))),
+        help_text=_('For which events the webhook is triggered'))
 
     def clean_url(self):
         value = self.cleaned_data.get('url')
@@ -101,6 +109,9 @@ class WebHooksPlugin(Plugin):
     def get_webhook_urls(self, project):
         return filter(bool, self.get_option('urls', project).strip().splitlines())
 
+    def get_event_filter(self, project):
+        return self.get_option('event_filter', project) or DEFAULT_EVENT_FILTER
+
     def send_webhook(self, url, data):
         req = urllib2.Request(url, data)
         req.add_header('User-Agent', 'sentry-webhooks/%s' % self.version)
@@ -110,7 +121,8 @@ class WebHooksPlugin(Plugin):
         return resp
 
     def post_process(self, group, event, is_new, is_sample, **kwargs):
-        if not is_new:
+
+        if self.get_event_filter(group.project) == 'only_new' and not is_new:
             return
 
         if not self.is_configured(group.project):
